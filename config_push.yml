@@ -7,14 +7,14 @@
     - name: Configure loopback interface
       cisco.iosxr.iosxr_config:
         lines:
-          - description Managed by Ansible
-          - ipv4 address 10.255.255.1 255.255.255.255
-        parents: interface Loopback100
+          - description {{ loopback_description }}
+          - ipv4 address {{ loopback_ip }} {{ loopback_prefix }}
+        parents: interface Loopback{{ loopback_number }}
 
     - name: Verify loopback was created
       cisco.iosxr.iosxr_command:
         commands:
-          - show interfaces Loopback100
+          - show interfaces Loopback{{ loopback_number }}
       register: output
 
     - name: Display verification output
