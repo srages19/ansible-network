@@ -1,0 +1,7 @@
+ansible_user: your_username_here
+ansible_password: your_password_here
+ansible_connection: network_cli
+ansible_network_os: cisco.ios.ios
+ansible_become: yes
+ansible_become_method: enable
+ansible_become_password: your_enable_password_here
