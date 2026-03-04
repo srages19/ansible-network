@@ -1,0 +1,23 @@
+---
+- name: Configure Loopback via Role
+  hosts: iosxr
+  gather_facts: false
+
+  tasks:
+    - name: Configure primary loopback
+      ansible.builtin.include_role:
+        name: loopback
+      vars:
+        loopback_number: 101
+        loopback_ip: 10.255.255.2
+        loopback_prefix: 255.255.255.255
+        loopback_description: Primary Loopback - Managed by Ansible
+
+    - name: Configure secondary loopback
+      ansible.builtin.include_role:
+        name: loopback
+      vars:
+        loopback_number: 102
+        loopback_ip: 10.255.255.3
+        loopback_prefix: 255.255.255.255
+        loopback_description: Secondary Loopback - Managed by Ansible
