@@ -1,5 +1,0 @@
-ansible_user: vsegars
-ansible_password: 0gnfzZE7b-M7e4z-
-ansible_connection: network_cli
-ansible_network_os: cisco.iosxr.iosxr
-ansible_become: no

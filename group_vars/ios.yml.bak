@@ -1,7 +1,0 @@
-ansible_user: vsegars
-ansible_password: E60Uiek6_aN_
-ansible_connection: network_cli
-ansible_network_os: cisco.iosxr.iosxr
-ansible_become: no
-ansible_become_method: enable
-ansible_become_password: C1sco12345
