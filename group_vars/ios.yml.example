@@ -1,0 +1,5 @@
+ansible_user: your_username_here
+ansible_password: your_password_here
+ansible_connection: network_cli
+ansible_network_os: cisco.iosxr.iosxr
+ansible_become: no
