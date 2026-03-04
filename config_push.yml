@@ -1,0 +1,22 @@
+---
+- name: Push Configuration to IOS-XR Device
+  hosts: ios
+  gather_facts: false
+
+  tasks:
+    - name: Configure loopback interface
+      cisco.iosxr.iosxr_config:
+        lines:
+          - description Managed by Ansible
+          - ipv4 address 10.255.255.1 255.255.255.255
+        parents: interface Loopback100
+
+    - name: Verify loopback was created
+      cisco.iosxr.iosxr_command:
+        commands:
+          - show interfaces Loopback100
+      register: output
+
+    - name: Display verification output
+      debug:
+        var: output.stdout_lines
