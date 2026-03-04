@@ -1,0 +1,91 @@
+---
+- name: Pre/Post Change Validation
+  hosts: iosxr
+  gather_facts: false
+
+  vars:
+    loopback_number: 103
+    loopback_ip: 10.255.255.4
+    loopback_prefix: 255.255.255.255
+    loopback_description: Validation Test - Managed by Ansible
+
+  tasks:
+    # ------------------------------------------------
+    # PRE-CHANGE
+    # ------------------------------------------------
+    - name: PRE - Capture interface summary
+      cisco.iosxr.iosxr_command:
+        commands:
+          - show interfaces summary
+      register: pre_interfaces
+
+    - name: PRE - Capture routing table summary
+      cisco.iosxr.iosxr_command:
+        commands:
+          - show route summary
+      register: pre_routes
+
+    - name: PRE - Display pre-change state
+      debug:
+        msg:
+          - "=== PRE-CHANGE STATE ==="
+          - "{{ pre_interfaces.stdout_lines }}"
+          - "{{ pre_routes.stdout_lines }}"
+
+    # ------------------------------------------------
+    # CHANGE
+    # ------------------------------------------------
+    - name: CHANGE - Configure new loopback
+      cisco.iosxr.iosxr_config:
+        lines:
+          - description {{ loopback_description }}
+          - ipv4 address {{ loopback_ip }} {{ loopback_prefix }}
+        parents: interface Loopback{{ loopback_number }}
+
+    # ------------------------------------------------
+    # POST-CHANGE
+    # ------------------------------------------------
+    - name: POST - Capture interface summary
+      cisco.iosxr.iosxr_command:
+        commands:
+          - show interfaces summary
+      register: post_interfaces
+
+    - name: POST - Capture routing table summary
+      cisco.iosxr.iosxr_command:
+        commands:
+          - show route summary
+      register: post_routes
+
+    - name: POST - Display post-change state
+      debug:
+        msg:
+          - "=== POST-CHANGE STATE ==="
+          - "{{ post_interfaces.stdout_lines }}"
+          - "{{ post_routes.stdout_lines }}"
+
+    # ------------------------------------------------
+    # COMPARISON
+    # ------------------------------------------------
+    - name: COMPARE - Show before and after route counts
+      debug:
+        msg:
+          - "=== CHANGE SUMMARY ==="
+          - "PRE  route summary : {{ pre_routes.stdout_lines }}"
+          - "POST route summary : {{ post_routes.stdout_lines }}"
+
+    - name: VERIFY - Confirm new loopback is present
+      cisco.iosxr.iosxr_command:
+        commands:
+          - show interfaces Loopback{{ loopback_number }}
+      register: verify_loopback
+
+    - name: VERIFY - Fail if loopback is not up
+      ansible.builtin.fail:
+        msg: "VALIDATION FAILED - Loopback{{ loopback_number }} is not up after change"
+      when: "'line protocol is up' not in verify_loopback.stdout[0]"
+
+    - name: VERIFY - Display success
+      debug:
+        msg: "VALIDATION PASSED - Loopback{{ loopback_number }} is up and configured correctly"
+      when: "'line protocol is up' in verify_loopback.stdout[0]"
