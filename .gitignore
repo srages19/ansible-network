@@ -1,3 +1,16 @@
+# Ignore all group_vars files that contain real credentials
+group_vars/*
+
+# But allow example template files through
+!group_vars/*.example
+
+# Ignore all host_vars files that contain real credentials  
+host_vars/*
+
+# But allow example template files through
+!host_vars/*.example
+
+# Other standard Ansible ignores
 *.retry
 *.log
-group_vars/ios.yml
+*.bak
