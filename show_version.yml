@@ -1,6 +1,6 @@
 ---
 - name: Get IOS-XE Device Information
-  hosts: ios
+  hosts: iosxe
   gather_facts: false
 
   tasks:

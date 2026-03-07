@@ -1,8 +1,0 @@
-ansible_user: "{{ vault_ansible_user }}"
-ansible_password: "{{ vault_ansible_password }}"
-ansible_connection: network_cli
-ansible_network_os: cisco.ios.ios
-ansible_become: yes
-ansible_become_method: enable
-ansible_become_password: C1sco12345
-
