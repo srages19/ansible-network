@@ -1,16 +1,19 @@
-# Ignore all group_vars files that contain real credentials
+# Ignore plain text credential files
 group_vars/*
-
-# But allow example template files through
-!group_vars/*.example
-
-# Ignore all host_vars files that contain real credentials  
 host_vars/*
 
-# But allow example template files through
-!host_vars/*.example
+# Allow example templates
+!group_vars/*.example
 
-# Other standard Ansible ignores
+# Allow encrypted vault files
+!group_vars/*_vault.yml
+!host_vars/*_vault.yml
+
+# Allow non-credential group_vars
+!group_vars/iosxr.yml
+!group_vars/iosxe.yml
+
+# Other ignores
 *.retry
 *.log
 *.bak
