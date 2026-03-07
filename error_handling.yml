@@ -16,10 +16,16 @@
         commands:
           - show ip interface brief
       register: pre_change
+      tags:
+        - pre_change
+        - validation
 
     - name: Display pre-change state
       debug:
         msg: "PRE-CHANGE: {{ pre_change.stdout_lines }}"
+      tags:
+        - pre_change
+        - validation
 
     - block:
         - name: BLOCK - Push loopback config
@@ -29,35 +35,51 @@
               - ip address {{ loopback_ip }} {{ loopback_prefix }}
               - shutdown
             parents: interface Loopback{{ loopback_number }}
+          tags:
+            - change
 
         - name: BLOCK - Verify loopback is up
           cisco.ios.ios_command:
             commands:
               - show interfaces Loopback{{ loopback_number }}
           register: verify_output
+          tags:
+            - change
+            - validation
 
         - name: BLOCK - Fail intentionally if shutdown found
           ansible.builtin.fail:
             msg: "Interface is shutdown - rolling back"
           when: "'administratively down' in verify_output.stdout[0]"
+          tags:
+            - change
+            - validation
 
         - name: BLOCK - Confirm success
           debug:
             msg: "SUCCESS - Loopback{{ loopback_number }} is up and configured"
+          tags:
+            - change
 
       rescue:
         - name: RESCUE - Log the failure
           debug:
             msg: "FAILURE DETECTED - Attempting rollback of Loopback{{ loopback_number }}"
+          tags:
+            - change
 
         - name: RESCUE - Remove the failed config
           cisco.ios.ios_config:
             lines:
               - no interface Loopback{{ loopback_number }}
+          tags:
+            - change
 
         - name: RESCUE - Confirm rollback
           debug:
             msg: "ROLLBACK COMPLETE - Loopback{{ loopback_number }} has been removed"
+          tags:
+            - change
 
       always:
         - name: ALWAYS - Post-change snapshot
@@ -65,11 +87,20 @@
             commands:
               - show ip interface brief
           register: post_change
+          tags:
+            - post_change
+            - validation
 
         - name: ALWAYS - Display post-change state
           debug:
             msg: "POST-CHANGE: {{ post_change.stdout_lines }}"
+          tags:
+            - post_change
+            - validation
 
         - name: ALWAYS - Confirm playbook completed
           debug:
             msg: "Playbook finished - check above output for success or failure details"
+          tags:
+            - post_change
+
