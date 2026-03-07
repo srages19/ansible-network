@@ -1,0 +1,75 @@
+---
+- name: Error Handling Demo
+  hosts: iosxe
+  gather_facts: false
+
+  vars:
+    loopback_number: 211
+    loopback_ip: 10.210.210.2
+    loopback_prefix: 255.255.255.255
+    loopback_description: Error Handling Test - Managed by Ansible
+    force_shutdown: true
+
+  tasks:
+    - name: Pre-change snapshot
+      cisco.ios.ios_command:
+        commands:
+          - show ip interface brief
+      register: pre_change
+
+    - name: Display pre-change state
+      debug:
+        msg: "PRE-CHANGE: {{ pre_change.stdout_lines }}"
+
+    - block:
+        - name: BLOCK - Push loopback config
+          cisco.ios.ios_config:
+            lines:
+              - description {{ loopback_description }}
+              - ip address {{ loopback_ip }} {{ loopback_prefix }}
+              - shutdown
+            parents: interface Loopback{{ loopback_number }}
+
+        - name: BLOCK - Verify loopback is up
+          cisco.ios.ios_command:
+            commands:
+              - show interfaces Loopback{{ loopback_number }}
+          register: verify_output
+
+        - name: BLOCK - Fail intentionally if shutdown found
+          ansible.builtin.fail:
+            msg: "Interface is shutdown - rolling back"
+          when: "'administratively down' in verify_output.stdout[0]"
+
+        - name: BLOCK - Confirm success
+          debug:
+            msg: "SUCCESS - Loopback{{ loopback_number }} is up and configured"
+
+      rescue:
+        - name: RESCUE - Log the failure
+          debug:
+            msg: "FAILURE DETECTED - Attempting rollback of Loopback{{ loopback_number }}"
+
+        - name: RESCUE - Remove the failed config
+          cisco.ios.ios_config:
+            lines:
+              - no interface Loopback{{ loopback_number }}
+
+        - name: RESCUE - Confirm rollback
+          debug:
+            msg: "ROLLBACK COMPLETE - Loopback{{ loopback_number }} has been removed"
+
+      always:
+        - name: ALWAYS - Post-change snapshot
+          cisco.ios.ios_command:
+            commands:
+              - show ip interface brief
+          register: post_change
+
+        - name: ALWAYS - Display post-change state
+          debug:
+            msg: "POST-CHANGE: {{ post_change.stdout_lines }}"
+
+        - name: ALWAYS - Confirm playbook completed
+          debug:
+            msg: "Playbook finished - check above output for success or failure details"
