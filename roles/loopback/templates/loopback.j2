@@ -1,0 +1,9 @@
+{% for loopback in loopbacks %}
+interface Loopback{{ loopback.number }}
+ description {{ loopback.description }}
+ ip address {{ loopback.ip }} {{ loopback.prefix }}
+{% if loopback.shutdown is defined and loopback.shutdown %}
+ shutdown
+{% endif %}
+!
+{% endfor %}

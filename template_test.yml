@@ -1,0 +1,51 @@
+---
+- name: Jinja2 Template Test
+  hosts: iosxe
+  gather_facts: false
+
+  vars:
+    loopbacks:
+      - number: 201
+        ip: 10.200.200.2
+        prefix: 255.255.255.255
+        description: Primary Loopback - Managed by Ansible
+      - number: 202
+        ip: 10.200.200.3
+        prefix: 255.255.255.255
+        description: Secondary Loopback - Managed by Ansible
+      - number: 203
+        ip: 10.200.200.4
+        prefix: 255.255.255.255
+        description: Tertiary Loopback - Managed by Ansible
+        shutdown: true
+
+  tasks:
+    - name: Generate config from template
+      ansible.builtin.template:
+        src: roles/loopback/templates/loopback.j2
+        dest: /tmp/loopback_config.txt
+      delegate_to: localhost
+
+    - name: Display generated config
+      ansible.builtin.command:
+        cmd: cat /tmp/loopback_config.txt
+      delegate_to: localhost
+      register: generated_config
+
+    - name: Show what will be pushed
+      debug:
+        var: generated_config.stdout_lines
+
+    - name: Push config to device
+      cisco.ios.ios_config:
+        src: /tmp/loopback_config.txt
+
+    - name: Verify all loopbacks were created
+      cisco.ios.ios_command:
+        commands:
+          - show ip interface brief
+      register: verify_output
+
+    - name: Display verification
+      debug:
+        var: verify_output.stdout_lines
