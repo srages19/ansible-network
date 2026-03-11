@@ -1,0 +1,31 @@
+---
+# Site Identity
+site_name: STAIR-PKY
+state_code: ST
+airport_code: AIR
+street_code: PKY
+
+# Infoblox Connection
+infoblox_host: infoblox.companyname.com
+infoblox_wapi_version: v2.13.7
+infoblox_user: "{{ vault_infoblox_user }}"
+infoblox_password: "{{ vault_infoblox_password }}"
+
+# Known Network Containers - these never change
+container_user: 10.1.0.0/24
+container_wireless: 10.2.0.0/24
+container_video: 10.3.0.0/24
+container_guest: 10.4.0.0/24
+container_site_pool: 10.5.0.0/20
+
+# Subnet sizes - these never change
+size_user: 27
+size_wireless: 27
+size_video: 28
+size_guest: 27
+size_site_container: 26
+size_phones: 27
+size_printers: 29
+size_ap_mgmt: 29
+size_phys_security: 29
+size_device_mgmt: 29

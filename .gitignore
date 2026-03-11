@@ -22,5 +22,5 @@ host_vars/*
 inventory/hosts.ini
 
 # Exclude vars directory - contains site specific data
-vars/
+vars/*
 !vars/*.example
