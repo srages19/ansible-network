@@ -1,0 +1,31 @@
+---
+- name: Get IOS-XE Device Information
+  hosts: iosxe
+  gather_facts: false
+  vars:
+    ansible_command_timeout: 300
+    ansible_connect_timeout: 30
+  tasks:
+    - name: Show BGP Summary
+      cisco.ios.ios_command:
+        commands:
+          - show ip bgp all summary
+      register: bgp_output
+
+    - name: Display BGP output
+      debug:
+        var: bgp_output.stdout_lines
+
+    - name: Run Pings
+      cisco.ios.ios_command:
+        commands:
+          - "ping vrf INTERNET {{ item.target }} source {{ item.source }} repeat 50"
+      loop: "{{ ping_targets }}"
+      register: ping_output
+
+    - name: Display Ping output
+      debug:
+        msg: "{{ item.stdout_lines | flatten | select('search', 'Success rate') | list }}"
+      loop: "{{ ping_output.results }}"
+      loop_control:
+        label: "{{ item.item.target }}"

@@ -17,3 +17,9 @@ host_vars/*
 *.retry
 *.log
 *.bak
+
+# Exclude inventory - contains hostnames
+inventory/hosts.ini
+
+# Exclude vars directory - contains site specific data
+vars/

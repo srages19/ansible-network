@@ -1,0 +1,125 @@
+---
+- name: Phase 1 - Infoblox Site Build
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - ../vars/site_build.yml
+    - ../group_vars/all/vault.yml
+
+  tasks:
+    # ------------------------------------------------
+    # VERIFY CONTAINERS EXIST BEFORE DOING ANYTHING
+    # ------------------------------------------------
+    - name: Verify user subnet container exists
+      ansible.builtin.uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/networkcontainer?network={{ container_user }}&_return_fields=network,comment"
+        method: GET
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        status_code: 200
+      register: verify_user_container
+
+    - name: Fail if user container not found
+      ansible.builtin.fail:
+        msg: "User subnet container {{ container_user }} not found in Infoblox"
+      when: verify_user_container.json | length == 0
+
+    - name: Verify wireless subnet container exists
+      ansible.builtin.uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/networkcontainer?network={{ container_wireless }}&_return_fields=network,comment"
+        method: GET
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        status_code: 200
+      register: verify_wireless_container
+
+    - name: Fail if wireless container not found
+      ansible.builtin.fail:
+        msg: "Wireless container {{ container_wireless }} not found in Infoblox"
+      when: verify_wireless_container.json | length == 0
+
+    - name: Verify video subnet container exists
+      ansible.builtin.uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/networkcontainer?network={{ container_video }}&_return_fields=network,comment"
+        method: GET
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        status_code: 200
+      register: verify_video_container
+
+    - name: Fail if video container not found
+      ansible.builtin.fail:
+        msg: "Video container {{ container_video }} not found in Infoblox"
+      when: verify_video_container.json | length == 0
+
+    - name: Verify guest subnet container exists
+      ansible.builtin.uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/networkcontainer?network={{ container_guest }}&_return_fields=network,comment"
+        method: GET
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        status_code: 200
+      register: verify_guest_container
+
+    - name: Fail if guest container not found
+      ansible.builtin.fail:
+        msg: "Guest container {{ container_guest }} not found in Infoblox"
+      when: verify_guest_container.json | length == 0
+
+    - name: Verify site pool container exists
+      ansible.builtin.uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/networkcontainer?network={{ container_site_pool }}&_return_fields=network,comment"
+        method: GET
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        status_code: 200
+      register: verify_site_pool
+
+    - name: Fail if site pool container not found
+      ansible.builtin.fail:
+        msg: "Site pool container {{ container_site_pool }} not found in Infoblox"
+      when: verify_site_pool.json | length == 0
+
+    # ------------------------------------------------
+    # CHECK SITE DOESN'T ALREADY EXIST
+    # ------------------------------------------------
+    - name: Check if site container already exists
+      ansible.builtin.uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/networkcontainer?comment={{ site_name }}&_return_fields=network,comment"
+        method: GET
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        status_code: 200
+      register: existing_site
+
+    - name: Fail if site already exists
+      ansible.builtin.fail:
+        msg: "Site {{ site_name }} already exists in Infoblox - aborting to prevent duplicates"
+      when: existing_site.json | length > 0
+
+    # ------------------------------------------------
+    # DISPLAY VERIFIED STATE
+    # ------------------------------------------------
+    - name: Display verified containers
+      ansible.builtin.debug:
+        msg:
+          - "=== INFOBLOX CONTAINER VERIFICATION ==="
+          - "User container:     {{ verify_user_container.json[0].network }} - FOUND"
+          - "Wireless container: {{ verify_wireless_container.json[0].network }} - FOUND"
+          - "Video container:    {{ verify_video_container.json[0].network }} - FOUND"
+          - "Guest container:    {{ verify_guest_container.json[0].network }} - FOUND"
+          - "Site pool:          {{ verify_site_pool.json[0].network }} - FOUND"
+          - "Site name:          {{ site_name }} - NOT A DUPLICATE"
+          - "=== READY TO PROCEED WITH SITE BUILD ==="

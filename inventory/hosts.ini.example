@@ -2,7 +2,7 @@
 sandbox-iosxr-1.cisco.com
 
 [iosxe]
-devnetsandboxiosxec8k.cisco.com
+iosxedevice.companyname.com
 
 [all_routers:children]
 iosxr
