@@ -1,26 +1,53 @@
-# Ignore plain text credential files
-group_vars/*
-host_vars/*
+# ==========================================
+# CREDENTIALS AND SENSITIVE DATA
+# ==========================================
 
-# Allow example templates
+# Ignore all group_vars contents
+group_vars/*
+
+# Allow example templates through
 !group_vars/*.example
 
-# Allow encrypted vault files
-!group_vars/*_vault.yml
-!host_vars/*_vault.yml
+# Allow subdirectories through so examples inside them work
+!group_vars/iosxr/
+!group_vars/iosxe/
+!group_vars/all/
 
-# Allow non-credential group_vars
-!group_vars/iosxr.yml
-!group_vars/iosxe.yml
+# But ignore everything inside those subdirectories
+group_vars/iosxr/*
+group_vars/iosxe/*
+group_vars/all/*
 
-# Other ignores
+# Allow example files inside subdirectories
+!group_vars/iosxr/*.example
+!group_vars/iosxe/*.example
+!group_vars/all/*.example
+
+# Ignore all host_vars contents
+host_vars/*
+
+# Allow example templates through
+!host_vars/*.example
+
+# Ignore all inventory files
+inventory/*
+
+# Allow example inventory files through
+!inventory/*.example
+
+# Ignore vars directory - contains site specific data
+vars/*
+
+# Allow example vars files through
+!vars/*.example
+
+# ==========================================
+# TEMPORARY AND GENERATED FILES
+# ==========================================
 *.retry
 *.log
 *.bak
-
-# Exclude inventory - contains hostnames
-inventory/hosts.ini
-
-# Exclude vars directory - contains site specific data
-vars/*
-!vars/*.example
+*.csv
+*.txt
+*.save
+*.tar.gz

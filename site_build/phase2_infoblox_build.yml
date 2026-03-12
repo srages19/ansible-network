@@ -1,0 +1,333 @@
+---
+- name: Phase 2 - Infoblox Site Build
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - ../vars/site_build.yml
+    - ../group_vars/all/vault.yml
+
+  tasks:
+
+    # ---------------------------------------------------------
+    # SYSTEM IP
+    # ---------------------------------------------------------
+    - name: Reserve System IP /32
+      ansible.builtin.uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/network"
+        method: POST
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        body_format: json
+        body:
+          network: "func:nextavailablenetwork:{{ container_system_ip }},32"
+          comment: "{{ site_name }}"
+        status_code: 201
+      register: system_ip_result
+
+    - name: Extract System IP from response
+      ansible.builtin.set_fact:
+        system_ip: "{{ system_ip_result.json | regex_search('([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/32)') }}"
+
+    - name: Display System IP
+      ansible.builtin.debug:
+        msg: "System IP reserved: {{ system_ip }}"
+
+    # ------------------------------------------------
+    # LOOPBACK IP
+    # ------------------------------------------------
+    - name: Reserve Loopback IP /32
+      ansible.builtin.uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/network"
+        method: POST
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        body_format: json
+        body:
+          network: "func:nextavailablenetwork:{{ container_loopback }},32"
+          comment: "{{ site_name }}"
+        status_code: 201
+      register: loopback_result
+
+    - name: Extract Loopback IP from response
+      ansible.builtin.set_fact:
+        loopback_ip: "{{ loopback_result.json | regex_search('([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/32)') }}"
+
+    - name: Display Loopback IP
+      ansible.builtin.debug:
+        msg: "Loopback IP reserved: {{ loopback_ip }}"
+
+    #-------------------------------------------------
+    # WIRED USER SUBNET
+    #-------------------------------------------------
+    - name: Reserve Wired User Subnet /27
+      ansible.builtin.uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/network"
+        method: POST
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        body_format: json
+        body:
+          network: "func:nextavailablenetwork:{{ container_user }},27"
+          comment: "AFL-ZERO-{{ site_name }}-USR001"
+        status_code: 201
+      register: user_subnet_result
+
+    - name: Extract Wired User Subnet from response
+      ansible.builtin.set_fact:
+        user_subnet: "{{ user_subnet_result.json | regex_search('([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/27)') }}"
+
+    - name: Display Wired User Subnet
+      ansible.builtin.debug:
+        msg: "Wired User Subnet reserved: {{ user_subnet }}"
+
+    #-------------------------------------------------
+    # WIRELESS USER SUBNET
+    #-------------------------------------------------
+    - name: Reserve Wireless User Subnet /27
+      ansible.builtin.uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/network"
+        method: POST
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        body_format: json
+        body:
+          network: "func:nextavailablenetwork:{{ container_wireless }},27"
+          comment: "AFL-ZERO-{{ site_name }}-WLS001"
+        status_code: 201
+      register: wireless_subnet_result
+
+    - name: Extract Wireless User Subnet from response
+      ansible.builtin.set_fact:
+        wireless_subnet: "{{ wireless_subnet_result.json | regex_search('([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/27)') }}"
+
+    - name: Display Wireless User Subnet
+      ansible.builtin.debug:
+        msg: "Wireless User Subnet reserved: {{ wireless_subnet }}" 
+
+    #-------------------------------------------------
+    # VIDEO UNIT SUBNET
+    #-------------------------------------------------
+    - name: Reserve Video Unit Subnet /28
+      ansible.builtin.uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/network"
+        method: POST
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        body_format: json
+        body:
+          network: "func:nextavailablenetwork:{{ container_video }},28"
+          comment: "AFL-ZERO-{{ site_name }}-VID001"
+        status_code: 201
+      register: video_subnet_result
+
+    - name: Extract Video Unit Subnet from response
+      ansible.builtin.set_fact:
+        video_subnet: "{{ video_subnet_result.json | regex_search('([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/28)') }}"
+
+    - name: Display Video Unit Subnet
+      ansible.builtin.debug:
+        msg: "Video Unit Subnet reserved: {{ video_subnet }}"
+
+    #-------------------------------------------------
+    # GUEST SUBNET
+    #-------------------------------------------------
+    - name: Reserve Guest Subnet /28
+      ansible.builtin.uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/network"
+        method: POST
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        body_format: json
+        body:
+          network: "func:nextavailablenetwork:{{ container_guest }},28"
+          comment: "{{ site_name }}-GUEST"
+        status_code: 201
+      register: guest_subnet_result
+
+    - name: Extract Guest Subnet from response
+      ansible.builtin.set_fact:
+        guest_subnet: "{{ guest_subnet_result.json | regex_search('([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/28)') }}"
+
+    - name: Display Guest Subnet
+      ansible.builtin.debug:
+        msg: "Guest Subnet reserved: {{ guest_subnet }}"
+
+    #-------------------------------------------------
+    # TRUSTED SPACE /26
+    #-------------------------------------------------
+    - name: Reserve Trusted Space /26 for MKO
+      ansible.builtin.uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/networkcontainer"
+        method: POST
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        body_format: json
+        body:
+          network: "func:nextavailablenetwork:{{ container_site_pool }},26"
+          comment: "{{ site_name }}"
+        status_code: 201
+      register: site_container_result
+
+    - name: Extract Trusted Space from response
+      ansible.builtin.set_fact:
+        site_container: "{{ site_container_result.json | regex_search('([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/26)') }}"
+
+    - name: Display Trusted Space
+      ansible.builtin.debug:
+        msg: "Trusted Space reserved: {{ site_container }}"
+
+    #-------------------------------------------------
+    # TRUSTED SPACE NETWORKS
+    #-------------------------------------------------
+    - name: Reserve Phones Subnet /27
+      ansible.builtin.uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/network"
+        method: POST
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        body_format: json
+        body:
+          network: "func:nextavailablenetwork:{{ site_container }},27"
+          comment: "{{ site_name }}-Phones"
+        status_code: 201
+      register: phones_subnet_result
+
+    - name: Extract Phones Subnet from response
+      ansible.builtin.set_fact:
+        phones_subnet: "{{ phones_subnet_result.json | regex_search('([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/27)') }}"
+
+    - name: Display Phones Subnet
+      ansible.builtin.debug:
+        msg: "Phones Subnet reserved: {{ phones_subnet }}"
+
+    - name: Reserve Printers Subnet /29
+      ansible.builtin.uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/network"
+        method: POST
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        body_format: json
+        body:
+          network: "func:nextavailablenetwork:{{ site_container }},29"
+          comment: "{{ site_name }}-Printers"
+        status_code: 201
+      register: printers_subnet_result
+
+    - name: Extract Printers Subnet from response
+      ansible.builtin.set_fact:
+        printers_subnet: "{{ printers_subnet_result.json | regex_search('([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/29)') }}"
+
+    - name: Display Printers Subnet
+      ansible.builtin.debug:
+        msg: "Printers Subnet reserved: {{ printers_subnet }}"
+
+    - name: Reserve AP Management Subnet /29
+      ansible.builtin.uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/network"
+        method: POST
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        body_format: json
+        body:
+          network: "func:nextavailablenetwork:{{ site_container }},29"
+          comment: "{{ site_name }}-AP"
+        status_code: 201
+      register: ap_mgmt_subnet_result
+
+    - name: Extract AP Management Subnet from response
+      ansible.builtin.set_fact:
+        ap_mgmt_subnet: "{{ ap_mgmt_subnet_result.json | regex_search('([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/29)') }}"
+
+    - name: Display AP Management Subnet
+      ansible.builtin.debug:
+        msg: "AP Management Subnet reserved: {{ ap_mgmt_subnet }}"
+
+    - name: Reserve Physical Security Subnet /29
+      ansible.builtin.uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/network"
+        method: POST
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        body_format: json
+        body:
+          network: "func:nextavailablenetwork:{{ site_container }},29"
+          comment: "{{ site_name }}-Physical Security"
+        status_code: 201
+      register: phys_sec_subnet_result
+
+    - name: Extract Physical Security Subnet from response
+      ansible.builtin.set_fact:
+        phys_sec_subnet: "{{ phys_sec_subnet_result.json | regex_search('([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/29)') }}"
+
+    - name: Display Physical Security Subnet
+      ansible.builtin.debug:
+        msg: "Physical Security Subnet reserved: {{ phys_sec_subnet }}"
+
+    - name: Reserve Device Management Subnet /29
+      ansible.builtin.uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/network"
+        method: POST
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        body_format: json
+        body:
+          network: "func:nextavailablenetwork:{{ site_container }},29"
+          comment: "{{ site_name }}-Management"
+        status_code: 201
+      register: device_mgmt_subnet_result
+
+    - name: Extract Device Management Subnet from response
+      ansible.builtin.set_fact:
+        device_mgmt_subnet: "{{ device_mgmt_subnet_result.json | regex_search('([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/29)') }}"
+
+    - name: Display Device Management Subnet
+      ansible.builtin.debug:
+        msg: "Device Management Subnet reserved: {{ device_mgmt_subnet }}"
+
+    #------------------------------------------------------
+    # SUMMARY
+    #------------------------------------------------------
+
+    - name: Display complete site build summary
+      ansible.builtin.debug:
+        msg:
+          - "============================================"
+          - "SITE BUILD COMPLETE - {{ site_name }}"
+          - "============================================"
+          - "System IP:           {{ system_ip }}"
+          - "Loopback IP:         {{ loopback_ip }}"
+          - "Wired User Subnet:   {{ user_subnet }}"
+          - "Wireless Subnet:     {{ wireless_subnet }}"
+          - "Video Unit Subnet:   {{ video_subnet }}"
+          - "Guest Subnet:        {{ guest_subnet }}"
+          - "Trusted Space:       {{ site_container }}"
+          - "Phones Subnet:       {{ phones_subnet }}"
+          - "Printers Subnet:     {{ printers_subnet }}"
+          - "AP Mgmt Subnet:      {{ ap_mgmt_subnet }}"
+          - "Phys Sec Subnet:     {{ phys_sec_subnet }}"
+          - "Device Mgmt Subnet:  {{ device_mgmt_subnet }}"
+          - "============================================="

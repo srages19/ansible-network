@@ -1,9 +1,0 @@
-[iosxr]
-sandbox-iosxr-1.cisco.com
-
-[iosxe]
-iosxedevice.companyname.com
-
-[all_routers:children]
-iosxr
-iosxe

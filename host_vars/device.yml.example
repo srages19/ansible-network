@@ -1,0 +1,6 @@
+# Copy this file and rename to match your device hostname
+# Example: host_vars/your-device-hostname.yml
+loopback_number: 100
+loopback_ip: 10.x.x.x
+loopback_prefix: 255.255.255.255
+loopback_description: Managed by Ansible

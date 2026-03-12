@@ -1,0 +1,195 @@
+---
+# =============================================================================
+# delete_infoblox_records.yml
+#
+# Purpose : Reads a CSV file of IPs marked DELETE and removes their
+#           fixed address (/32 host records) from Infoblox via WAPI.
+#
+# Input   : A CSV file with at minimum these columns:
+#             ip_address, status
+#           Only rows where status = DELETE are processed.
+#           All KEEP rows are ignored.
+#
+# Flow    :
+#   1. Read the CSV
+#   2. Filter to DELETE rows only
+#   3. Look up each IP in Infoblox to find its WAPI object ref
+#   4. Print a full list of what WOULD be deleted and prompt to confirm
+#   5. Delete only if confirmed
+#   6. Write a deletion log CSV
+#
+# Vault variables required:
+#   infoblox_host      : Infoblox grid master FQDN or IP
+#   infoblox_user      : WAPI username
+#   infoblox_password  : WAPI password
+#
+# Usage:
+#   ansible-playbook delete_infoblox_records.yml \
+#     --ask-vault-pass \
+#     [-e "input_csv=/path/to/bgp_infoblox_results.csv"] \
+#     [-e "infoblox_wapi_version=v2.11"]
+# =============================================================================
+
+- name: Delete Infoblox fixed address records from CSV
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    input_csv: "bgp_infoblox_results.csv"
+    output_log: "infoblox_deletion_log.csv"
+    infoblox_wapi_version: "v2.13.7"         # adjust to your NIOS version
+
+  tasks:
+
+    # ------------------------------------------------------------------
+    # 1. Read and filter the CSV
+    # ------------------------------------------------------------------
+    - name: Read input CSV
+      read_csv:
+        path: "{{ input_csv }}"
+      register: csv_data
+
+    - name: Filter to DELETE rows only
+      set_fact:
+        delete_list: "{{ csv_data.list | selectattr('status', 'equalto', 'DELETE') | map(attribute='ip_address') | list }}"
+
+    - name: Abort if nothing to delete
+      meta: end_play
+      when: delete_list | length == 0
+
+    - name: Show how many records are queued for deletion
+      debug:
+        msg: "Found {{ delete_list | length }} IPs marked DELETE in {{ input_csv }}"
+
+    # ------------------------------------------------------------------
+    # 2. Look up each IP in Infoblox to get its object ref
+    # ------------------------------------------------------------------
+    - name: Look up fixed address records in Infoblox
+      uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/fixedaddress?ipv4addr={{ item }}&_return_fields=ipv4addr,mac,comment&_return_as_object=1"
+        method: GET
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        status_code: 200
+      loop: "{{ delete_list }}"
+      register: lookup_results
+      ignore_errors: true
+
+    # ------------------------------------------------------------------
+    # 3. Build a clean list of found records with their refs
+    # ------------------------------------------------------------------
+    - name: Build confirmed delete list with WAPI refs
+      set_fact:
+        confirmed_deletes: >-
+          {{
+            confirmed_deletes | default([]) + [{
+              'ip': item.item,
+              'ref': item.json.result[0]._ref,
+              'mac': item.json.result[0].mac | default('n/a'),
+              'comment': item.json.result[0].comment | default('')
+            }]
+          }}
+      loop: "{{ lookup_results.results }}"
+      when:
+        - item.status == 200
+        - item.json.result | length > 0
+
+    - name: Build not-found list (in CSV but not in Infoblox)
+      set_fact:
+        not_found: >-
+          {{
+            not_found | default([]) + [item.item]
+          }}
+      loop: "{{ lookup_results.results }}"
+      when: >
+        item.status != 200 or
+        item.json.result | length == 0
+
+    # ------------------------------------------------------------------
+    # 4. Print full preview and prompt for confirmation
+    # ------------------------------------------------------------------
+    - name: Preview - records NOT found in Infoblox (will be skipped)
+      debug:
+        msg: "NOT FOUND in Infoblox (will skip): {{ not_found | default([]) }}"
+
+    - name: Preview - records that WILL be deleted
+      debug:
+        msg: "WILL DELETE → IP: {{ item.ip }} | MAC: {{ item.mac }} | Comment: {{ item.comment }} | Ref: {{ item.ref }}"
+      loop: "{{ confirmed_deletes | default([]) }}"
+
+    - name: "CONFIRM: Type 'yes' to proceed with {{ confirmed_deletes | default([]) | length }} deletions"
+      pause:
+        prompt: |
+          ============================================================
+          You are about to delete {{ confirmed_deletes | default([]) | length }} fixed address record(s) from Infoblox.
+          Records not found in Infoblox: {{ not_found | default([]) | length }}
+          Type 'yes' to confirm or anything else to abort
+          ============================================================
+      register: confirmation
+
+    - name: Abort if not confirmed
+      meta: end_play
+      when: confirmation.user_input | lower != 'yes'
+
+    # ------------------------------------------------------------------
+    # 5. Delete confirmed records
+    # ------------------------------------------------------------------
+    - name: Delete fixed address records from Infoblox
+      uri:
+        url: "https://{{ infoblox_host }}/wapi/{{ infoblox_wapi_version }}/{{ item.ref }}"
+        method: DELETE
+        user: "{{ infoblox_user }}"
+        password: "{{ infoblox_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        status_code: 200
+      loop: "{{ confirmed_deletes }}"
+      loop_control:
+        label: "{{ item.ip }}"
+      register: delete_results
+      ignore_errors: true
+
+    # ------------------------------------------------------------------
+    # 6. Write deletion log CSV
+    # ------------------------------------------------------------------
+    - name: Create deletion log with header
+      copy:
+        content: "ip_address,mac,comment,status,wapi_ref\n"
+        dest: "{{ output_log }}"
+
+    - name: Log each deletion result
+      lineinfile:
+        path: "{{ output_log }}"
+        line: >-
+          {{ item.item.ip }},{{ item.item.mac }},{{ item.item.comment }},
+          {{ 'DELETED' if item.status == 200 else 'FAILED' }},{{ item.item.ref }}
+        insertafter: EOF
+      loop: "{{ delete_results.results }}"
+      loop_control:
+        label: "{{ item.item.ip }}"
+
+    - name: Log skipped (not found) records
+      lineinfile:
+        path: "{{ output_log }}"
+        line: "{{ item }},n/a,n/a,NOT_FOUND,n/a"
+        insertafter: EOF
+      loop: "{{ not_found | default([]) }}"
+
+    # ------------------------------------------------------------------
+    # 7. Final summary
+    # ------------------------------------------------------------------
+    - name: Final summary
+      vars:
+        deleted_count: "{{ delete_results.results | selectattr('status', 'equalto', 200) | list | length }}"
+        failed_count:  "{{ delete_results.results | rejectattr('status', 'equalto', 200) | list | length }}"
+      debug:
+        msg:
+          - "=================================================="
+          - "Infoblox cleanup complete"
+          - "Deleted successfully : {{ deleted_count }}"
+          - "Failed               : {{ failed_count }}"
+          - "Not found in NIOS    : {{ not_found | default([]) | length }}"
+          - "Log written to       : {{ output_log }}"
+          - "=================================================="

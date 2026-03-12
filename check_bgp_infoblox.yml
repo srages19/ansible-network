@@ -1,0 +1,117 @@
+---
+# =============================================================================
+# check_bgp_infoblox.yml
+#
+# Purpose : For each IP in 10.254.1.0–10.254.1.255, run:
+#             show ip bgp vpnv4 vrf <vrf> <ip>/32 longer-prefixes
+#           and determine whether a BGP route exists.
+#
+# Logic   : If line 3 of the output starts with "BGP table version"
+#             → route EXISTS  → keep the Infoblox entry  (status = KEEP)
+#           If line 3 is back to the router prompt (empty / prompt string)
+#             → no route      → safe to delete Infoblox entry (status = DELETE)
+#
+# Output  : CSV file at the path defined by `output_csv` (default below)
+#           Columns: ip_address, status, line3
+#
+# Usage   :
+#   ansible-playbook check_bgp_infoblox.yml \
+#     -i inventory.ini \
+#     [--extra-vars "output_csv=/tmp/results.csv"]
+#
+# The playbook will prompt you for the VRF name before running.
+# =============================================================================
+
+- name: Check BGP VPNv4 routes for Infoblox cleanup
+  hosts: all          # target group in your inventory
+  gather_facts: false
+
+  vars_prompt:
+    - name: vrf_name
+      prompt: "Enter the VRF name"
+      private: false       # show what is typed (it is not a password)
+
+  vars:
+    output_csv: "bgp_infoblox_results.csv"
+    subnet_prefix: "10.254.1"
+    host_range: "{{ range(0, 256) | list }}"
+
+  tasks:
+
+    # ------------------------------------------------------------------
+    # 1. Write CSV header (runs once on the Ansible control node)
+    # ------------------------------------------------------------------
+    - name: Create CSV file with header row
+      run_once: true
+      delegate_to: localhost
+      copy:
+        content: "ip_address,status,line3\n"
+        dest: "{{ output_csv }}"
+
+    # ------------------------------------------------------------------
+    # 2. Loop over every host octet 0–255
+    # ------------------------------------------------------------------
+    - name: Run BGP check for each IP in 10.254.1.0/24
+      cisco.ios.ios_command:
+        commands:
+          - "show ip bgp vpnv4 vrf {{ vrf_name }} {{ subnet_prefix }}.{{ item }}/32 longer-prefixes"
+      loop: "{{ host_range }}"
+      loop_control:
+        loop_var: item
+        label: "{{ subnet_prefix }}.{{ item }}"
+      register: bgp_results
+      # Don't abort the whole play if a single command returns non-zero
+      ignore_errors: true
+
+
+
+
+    # ------------------------------------------------------------------
+    # 3. Evaluate each result and append a row to the CSV
+    # ------------------------------------------------------------------
+    - name: Parse output and write CSV rows
+      delegate_to: localhost
+      loop: "{{ bgp_results.results }}"
+      loop_control:
+        loop_var: result
+        label: "{{ subnet_prefix }}.{{ result.item }}"
+      vars:
+        ip_addr: "{{ subnet_prefix }}.{{ result.item }}"
+        # ios_command returns a list of per-command output strings.
+        # Split the single command output into lines.
+        raw_lines: "{{ (result.stdout[0] | default('')) .splitlines() }}"
+        # Line index 2 (0-based) = the 3rd line. Default empty string if
+        # the output has fewer than 3 lines (means no route).
+        line3: "{{ raw_lines[3] | default('') | trim }}"
+        # A route exists when line 3 starts with "BGP table version"
+        route_exists: "{{ line3 is search('^BGP table version') }}"
+        status: "{{ 'KEEP' if route_exists else 'DELETE' }}"
+        # Escape any commas in line3 so the CSV stays valid
+        safe_line3: "\"{{ line3 | replace('\"', '\"\"') }}\""
+      lineinfile:
+        path: "{{ output_csv }}"
+        line: "{{ ip_addr }},{{ status }},{{ safe_line3 }}"
+        insertafter: EOF
+        create: false   # header file was already created in task 1
+
+    # ------------------------------------------------------------------
+    # 4. Summary
+    # ------------------------------------------------------------------
+    - name: Print summary
+      run_once: true
+      delegate_to: localhost
+      vars:
+        # Read the finished CSV back to count outcomes
+        csv_content: "{{ lookup('file', output_csv) }}"
+        keep_count:   "{{ csv_content.split('\n') | select('search', ',KEEP,')   | list | length }}"
+        delete_count: "{{ csv_content.split('\n') | select('search', ',DELETE,') | list | length }}"
+      debug:
+        msg:
+          - "=================================================="
+          - "BGP / Infoblox cleanup scan complete"
+          - "VRF            : {{ vrf_name }}"
+          - "Subnet scanned : {{ subnet_prefix }}.0/24"
+          - "KEEP   (route found)  : {{ keep_count }}"
+          - "DELETE (no route)     : {{ delete_count }}"
+          - "Results written to    : {{ output_csv }}"
+          - "=================================================="
