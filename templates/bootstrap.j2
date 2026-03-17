@@ -1,0 +1,29 @@
+hostname {{ site_name }}
+!
+system
+ system-ip {{ system_ip.split('/')[0] }}
+ site-id {{ site_id }}
+ vbond {{ vbond }}
+ organization-name "{{ organization_name }}"
+!
+interface GigabitEthernet0/0/3
+ ip address {{ lab_ipaddress.split('/')[0] }} 255.255.255.252
+!
+interface Tunnel2
+ no shutdown
+ ip unnumbered GigabitEthernet0/0/3
+ tunnel source GigabitEthernet0/0/3
+ tunnel mode sdwan
+!
+sdwan
+ interface GigabitEthernet0/0/3
+  tunnel-interface
+   encapsulation ipsec
+   color public-internet
+  !
+ !
+!
+ip route 0.0.0.0 0.0.0.0 {{ lab_golr }}
+ip domain lookup
+ip name-server 8.8.8.8
+  

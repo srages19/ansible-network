@@ -1,0 +1,88 @@
+---
+- name: Check IPsec Tunnel Status and Logs on PAN-OS Firewalls
+  hosts: firewalls
+  gather_facts: false
+
+  vars:
+    panos_provider:
+      ip_address: "{{ ansible_host }}"
+      username: "{{ vault_fw_user }}"
+      password: "{{ vault_fw_password }}"
+
+    tunnels_to_check:
+      - "{{ vault_tunnel_1 }}"
+      - "{{ vault_tunnel_2 }}"
+
+    log_filter: "( severity neq 'informational' ) and ( object contains '{{ vault_tunnel_search }}' ) and ( receive_time geq '{{ lookup('pipe', 'date -d \"24 hours ago\" \"+%Y/%m/%d %H:%M:%S\"') }}' )"
+    log_count: 500
+
+  tasks:
+
+    # -----------------------------------------------------------
+    # TUNNEL STATUS
+    # -----------------------------------------------------------
+    - name: Get IPsec tunnel status
+      paloaltonetworks.panos.panos_op:
+        provider: "{{ panos_provider }}"
+        cmd: "show vpn ipsec-sa"
+      register: tunnel_output
+
+    - name: Parse tunnel state for each tunnel of interest
+      ansible.builtin.set_fact:
+        tunnel_status: >-
+          {{
+            tunnel_status | default({}) | combine({
+              item: (
+                'active' if (tunnel_output.stdout_xml | regex_search('<name>' + item + '</name>'))
+                else 'down'
+              )
+            })
+          }}
+      loop: "{{ tunnels_to_check }}"
+
+    - name: Report tunnel status
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} | Tunnel {{ item.key }}: {{ item.value }}"
+      loop: "{{ tunnel_status | dict2items }}"
+
+    - name: Flag if any tunnel is down
+      ansible.builtin.debug:
+        msg: "WARNING: Tunnel {{ item.key }} appears DOWN on {{ inventory_hostname }}"
+      loop: "{{ tunnel_status | dict2items }}"
+      when: item.value != 'active'
+
+    # -----------------------------------------------------------
+    # SYSTEM LOGS
+    # -----------------------------------------------------------
+    - name: Submit log query job via API
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}/api/?type=log&log-type=system&query={{ log_filter | urlencode }}&nlogs={{ log_count }}&key={{ panos_api_key }}"
+        method: GET
+        validate_certs: false
+        return_content: true
+      register: log_job
+
+    - name: Extract job ID from response
+      ansible.builtin.set_fact:
+        log_job_id: "{{ log_job.content | regex_search('<job>(\\d+)</job>', '\\1') | first }}"
+
+    - name: Wait for log job to complete
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}/api/?type=log&action=get&jobid={{ log_job_id }}&key={{ panos_api_key }}"
+        method: GET
+        validate_certs: false
+        return_content: true
+      register: log_result
+      until: log_result.content is search('<status>FIN</status>')
+      retries: 10
+      delay: 3
+
+    - name: Tunnel log events - last 24 hours
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} | {{ item | regex_search('<time_generated>(.*?)</time_generated>', '\1') | first | default('no time') }} | {{ item | regex_search('<opaque>(.*?)</opaque>', '\1') | first | default('no description') }}
+      loop: "{{ log_result.content | regex_findall('(?s)<entry logid.*?</entry>') }}"
+      when: log_result.content is defined
+      loop_control:
+        label: "{{ inventory_hostname }}"
+

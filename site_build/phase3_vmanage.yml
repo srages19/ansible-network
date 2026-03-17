@@ -1,0 +1,44 @@
+---
+- name: Phase 3 - Bootstrap Generation and vManage Onboarding
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - ../vars/site_build.yml
+    - ../group_vars/all/vault.yml
+
+  vars_prompt:
+    - name: lab_ipaddress
+      prompt: "Enter lab WAN IP address with prefix (x.x.x.x/30)"
+      private: no
+    - name: lab_golr
+      prompt: "Enter lab default route next hop"
+      private: no
+
+  tasks:
+    # ------------------------------------------------
+    # PHASE 3A - GENERATE BOOTSTRAP CONFIG
+    # ------------------------------------------------
+    - name: Install netaddr library for ipaddr filter
+      ansible.builtin.pip:
+        name: netaddr
+      delegate_to: localhost
+
+    - name: Generate bootstrap config from template
+      ansible.builtin.template:
+        src: ../templates/bootstrap.j2
+        dest: /tmp/{{ site_name }}_bootstrap.txt
+      delegate_to: localhost
+
+    - name: Display bootstrap config for review
+      ansible.builtin.command:
+        cmd: cat /tmp/{{ site_name }}_bootstrap.txt
+      delegate_to: localhost
+      register: bootstrap_content
+
+    - name: Show bootstrap config
+      ansible.builtin.debug:
+        var: bootstrap_content.stdout_lines
+
+    - name: Confirm bootstrap config looks correct
+      ansible.builtin.pause:
+        prompt: "Review the bootstrap config above. Press Enter to continue or Ctrl+C then A to abort"

@@ -1,9 +1,7 @@
 ---
 # Site Identity
-site_name: STAIR-PKY
-state_code: ST
-airport_code: AIR
-street_code: PKY
+site_name: EXMPL-MKO
+
 
 # Infoblox Connection
 infoblox_host: infoblox.companyname.com

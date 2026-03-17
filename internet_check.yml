@@ -1,6 +1,6 @@
 ---
 - name: Get IOS-XE Device Information
-  hosts: iosxe
+  hosts: all
   gather_facts: false
   vars:
     ansible_command_timeout: 300
