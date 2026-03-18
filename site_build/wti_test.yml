@@ -1,0 +1,38 @@
+---
+- name: WTI Console Test
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - ../vars/site_build.yml
+    - ../group_vars/all/vault.yml
+
+  vars_prompt:
+    - name: wti_port
+      prompt: "Enter WTI console port number the lab switch is connected to"
+      private: no
+
+  tasks:
+    - name: Verify pexpect is installed
+      ansible.builtin.pip:
+        name: pexpect
+
+    - name: Generate WTI test script
+      ansible.builtin.template:
+        src: ../templates/wti_test.py.j2
+        dest: /tmp/wti_test.py
+        mode: '0700'
+      no_log: true
+
+    - name: Execute WTI test
+      ansible.builtin.command:
+        cmd: python3 /tmp/wti_test.py
+      register: wti_result
+
+    - name: Display result
+      ansible.builtin.debug:
+        var: wti_result.stdout_lines
+
+    - name: Clean up test script
+      ansible.builtin.file:
+        path: /tmp/wti_test.py
+        state: absent

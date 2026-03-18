@@ -15,9 +15,11 @@
       private: no
 
   tasks:
+
     # ------------------------------------------------
     # PHASE 3A - GENERATE BOOTSTRAP CONFIG
     # ------------------------------------------------
+
     - name: Install netaddr library for ipaddr filter
       ansible.builtin.pip:
         name: netaddr
@@ -42,3 +44,52 @@
     - name: Confirm bootstrap config looks correct
       ansible.builtin.pause:
         prompt: "Review the bootstrap config above. Press Enter to continue or Ctrl+C then A to abort"
+
+
+    # ------------------------------------------------
+    # PHASE 3B - PUSH BOOTSTRAP VIA WTI
+    # ------------------------------------------------
+
+    - name: Verify pexpect is installed
+      ansible.builtin.pip:
+        name: pexpect
+      delegate_to: localhost
+
+    - name: Read bootstrap config file
+      ansible.builtin.slurp:
+        src: /tmp/{{ site_name }}_bootstrap.txt
+      register: bootstrap_file
+      delegate_to: localhost
+
+    - name: Set bootstrap lines as variable
+      ansible.builtin.set_fact:
+        bootstrap_lines: "{{ (bootstrap_file.content | b64decode).split('\n') }}"
+
+    - name: Generate WTI push script from template
+      ansible.builtin.template:
+        src: ../templates/push_bootstrap.py.j2
+        dest: /tmp/{{ site_name }}_push_bootstrap.py
+        mode: '0700'
+      delegate_to: localhost
+      no_log: true
+
+    - name: Execute bootstrap push via WTI
+      ansible.builtin.command:
+        cmd: python3 /tmp/{{ site_name }}_push_bootstrap.py
+      delegate_to: localhost
+      register: wti_result
+      no_log: true
+
+    - name: Display WTI push result
+      ansible.builtin.debug:
+        var: wti_result.stdout_lines
+
+    - name: Clean up sensitive script file
+      ansible.builtin.file:
+        path: /tmp/{{ site_name }}_push_bootstrap.py
+        state: absent
+      delegate_to: localhost
+
+    - name: Pause to allow router to boot and connect to vManage
+      ansible.builtin.pause:
+        prompt: "Bootstrap pushed. Waiting for router to connect to vManage. Press Enter when router shows as reachable in vManage or wait for automatic detection"

@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+import pexpect
+import sys
+import time
+
+print("Starting WTI console test...")
+
+# Connect to WTI
+print("Connecting to WTI at {{ wti_host }}...")
+child = pexpect.spawn(
+    'ssh -o StrictHostKeyChecking=no {{ wti_user }}@{{ wti_host }}',
+    timeout=30,
+    encoding='utf-8'
+)
+
+# Handle SSH password prompt
+child.expect('[Pp]assword:')
+child.send('{{ wti_password }}\r\n')
+print("Authenticated to WTI")
+
+# Wait for the full WTI menu to finish printing
+child.expect('command menu')
+print("WTI menu fully loaded")
+
+# Wait for the actual prompt
+child.expect('>')
+print("Got WTI prompt - ready for commands")
+time.sleep(1)
+
+# Connect to console port
+child.send('/C {{ wti_port }}\r\n')
+print("Connecting to console port {{ wti_port }}...")
+
+# Wait for WTI connection confirmation
+child.expect('To disconnect', timeout=15)
+print("WTI confirmed connection to port {{ wti_port }}")
+
+# Wait for banner to fully print then send enter to trigger username prompt
+time.sleep(5)
+child.send('\r\n')
+time.sleep(2)
+
+# Wait for username prompt to appear
+child.expect('[Uu]sername:', timeout=20)
+print("Got username prompt")
+child.send('{{ wti_user }}\r\n')
+
+# Wait for password prompt
+child.expect('[Pp]assword:', timeout=10)
+print("Got password prompt")
+child.send('{{ wti_password }}\r\n')
+print("Sent password")
+
+# Wait for user exec prompt
+child.expect('>', timeout=10)
+print("Logged into device")
+
+# Enter enable mode
+child.send('en\r\n')
+index = child.expect(['[Pp]assword:', '#'], timeout=10)
+if index == 0:
+    print("Got enable password prompt")
+    child.send('{{ wti_enable }}\r\n')
+    child.expect('#', timeout=10)
+print("In enable mode")
+
+# Enter config mode
+child.send('configure terminal\r\n')
+child.expect('#', timeout=10)
+time.sleep(1)
+print("Entered config mode")
+
+# Test change - add description to Loopback0
+print("Making test change...")
+child.send('interface Loopback0\r\n')
+child.expect('#', timeout=10)
+time.sleep(0.5)
+
+child.send('description ANSIBLE-TEST-DO-NOT-REMOVE\r\n')
+child.expect('#', timeout=10)
+time.sleep(0.5)
+
+child.send('exit\r\n')
+child.expect('#', timeout=10)
+time.sleep(0.5)
+
+# Exit config mode
+child.send('end\r\n')
+child.expect('#', timeout=10)
+print("Exited config mode")
+
+# Save config
+child.send('write memory\r\n')
+child.expect(r'\[OK\]|OK', timeout=30)
+print("Configuration saved")
+
+# Verify the change
+child.send('show interfaces Loopback0 description\r\n')
+child.expect('#', timeout=10)
+print("Verification output:")
+print(child.before)
+
+# Disconnect from console
+child.sendcontrol('x')
+print("Disconnected from console port")
+time.sleep(1)
+
+# Close SSH
+child.send('exit\r\n')
+child.close()
+
+print("WTI test completed successfully")
+sys.exit(0)
