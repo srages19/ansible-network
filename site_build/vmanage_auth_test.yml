@@ -1,0 +1,50 @@
+---
+- name: vManage Authentication Test
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - ../vars/site_build.yml
+    - ../group_vars/all/vault.yml
+
+  tasks:
+    - name: Authenticate to vManage
+      ansible.builtin.uri:
+        url: "https://{{ vmanage_host }}/j_security_check"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          j_username: "{{ vmanage_user }}"
+          j_password: "{{ vmanage_password }}"
+        validate_certs: no
+        status_code: 200
+      register: vmanage_auth
+
+    - name: Get CSRF token
+      ansible.builtin.uri:
+        url: "https://{{ vmanage_host }}/dataservice/client/token"
+        method: GET
+        validate_certs: no
+        return_content: yes
+        headers:
+          Cookie: "JSESSIONID={{ vmanage_auth.cookies.JSESSIONID }}"
+        status_code: 200
+      register: vmanage_token
+
+    - name: Set auth headers fact for reuse
+      ansible.builtin.set_fact:
+        vmanage_headers:
+          Cookie: "JSESSIONID={{ vmanage_auth.cookies.JSESSIONID }}"
+          X-XSRF-TOKEN: "{{ vmanage_token.content }}"
+
+    - name: Test device list API call
+      ansible.builtin.uri:
+        url: "https://{{ vmanage_host }}/dataservice/device"
+        method: GET
+        validate_certs: no
+        headers: "{{ vmanage_headers }}"
+        status_code: 200
+      register: device_list
+
+    - name: Display device count
+      ansible.builtin.debug:
+        msg: "Successfully retrieved {{ device_list.json.data | length }} devices from vManage"
