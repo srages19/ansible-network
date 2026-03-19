@@ -8,7 +8,7 @@
 
   vars_prompt:
     - name: lab_ipaddress
-      prompt: "Enter lab WAN IP address with prefix (x.x.x.x/30)"
+     prompt: "Enter lab WAN IP address with prefix (x.x.x.x/30)"
       private: no
     - name: lab_golr
       prompt: "Enter lab default route next hop"
@@ -50,46 +50,394 @@
     # PHASE 3B - PUSH BOOTSTRAP VIA WTI
     # ------------------------------------------------
 
-    - name: Verify pexpect is installed
-      ansible.builtin.pip:
-        name: pexpect
-      delegate_to: localhost
+#    - name: Verify pexpect is installed
+#      ansible.builtin.pip:
+#        name: pexpect
+#      delegate_to: localhost
 
-    - name: Read bootstrap config file
-      ansible.builtin.slurp:
-        src: /tmp/{{ site_name }}_bootstrap.txt
-      register: bootstrap_file
-      delegate_to: localhost
+#    - name: Read bootstrap config file
+#      ansible.builtin.slurp:
+#        src: /tmp/{{ site_name }}_bootstrap.txt
+#      register: bootstrap_file
+#      delegate_to: localhost
 
-    - name: Set bootstrap lines as variable
+#    - name: Set bootstrap lines as variable
+#      ansible.builtin.set_fact:
+#        bootstrap_lines: "{{ (bootstrap_file.content | b64decode).split('\n') }}"
+
+#    - name: Generate WTI push script from template
+#      ansible.builtin.template:
+#        src: ../templates/push_bootstrap.py.j2
+#        dest: /tmp/{{ site_name }}_push_bootstrap.py
+#        mode: '0700'
+#      delegate_to: localhost
+#      no_log: true
+
+#    - name: Execute bootstrap push via WTI
+#      ansible.builtin.command:
+#        cmd: python3 /tmp/{{ site_name }}_push_bootstrap.py
+#      delegate_to: localhost
+#      register: wti_result
+#      no_log: false
+
+#    - name: Display WTI push result
+#      ansible.builtin.debug:
+#        var: wti_result.stdout_lines
+
+#    - name: Clean up sensitive script file
+#      ansible.builtin.file:
+#        path: /tmp/{{ site_name }}_push_bootstrap.py
+#        state: absent
+#      delegate_to: localhost
+
+#    - name: Pause to allow router to boot and connect to vManage
+#      ansible.builtin.pause:
+#        prompt: "Bootstrap pushed. Waiting for router to connect to vManage. Press Enter when router shows as reachable in vManage or wait for automatic detection"
+
+    # ------------------------------------------------
+    # PHASE 3C - AUTHENTICATE TO VMANAGE
+    # ------------------------------------------------
+    - name: Authenticate to vManage
+      ansible.builtin.uri:
+        url: "https://{{ vmanage_host }}/j_security_check"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          j_username: "{{ vmanage_user }}"
+          j_password: "{{ vmanage_password }}"
+        validate_certs: no
+        status_code: 200
+      register: vmanage_auth
+
+    - name: Get CSRF token
+      ansible.builtin.uri:
+        url: "https://{{ vmanage_host }}/dataservice/client/token"
+        method: GET
+        validate_certs: no
+        return_content: yes
+        headers:
+          Cookie: "JSESSIONID={{ vmanage_auth.cookies.JSESSIONID }}"
+        status_code: 200
+      register: vmanage_token
+
+    - name: Set vManage auth headers
       ansible.builtin.set_fact:
-        bootstrap_lines: "{{ (bootstrap_file.content | b64decode).split('\n') }}"
+        vmanage_headers:
+          Cookie: "JSESSIONID={{ vmanage_auth.cookies.JSESSIONID }}"
+          X-XSRF-TOKEN: "{{ vmanage_token.content }}"
 
-    - name: Generate WTI push script from template
+    # ------------------------------------------------
+    # PHASE 3C - POLL FOR DEVICE REACHABILITY
+    # ------------------------------------------------
+    - name: Poll vManage until device is reachable
+      ansible.builtin.uri:
+        url: "https://{{ vmanage_host }}/dataservice/device"
+        method: GET
+        validate_certs: no
+        headers: "{{ vmanage_headers }}"
+        status_code: 200
+      register: device_poll
+      until: >
+        device_poll.json.data |
+        selectattr('system-ip', 'equalto', system_ip.split('/')[0]) |
+        selectattr('reachability', 'equalto', 'reachable') |
+        list | length > 0
+      retries: 60
+      delay: 30
+      failed_when: >
+        device_poll.json.data |
+        selectattr('board-serial', 'equalto', router_serial) |
+        list | length == 0 and
+        device_poll.json.data | length > 0
+      tags: skip_for_testing
+
+    - name: Extract device UUID from vManage
+      ansible.builtin.set_fact:
+        device_uuid: >-
+          {{ device_poll.json.data |
+          selectattr('system-ip', 'equalto', router_serial) |
+          map(attribute='uuid') |
+          first }}
+        device_system_ip: >-
+          {{ device_poll.json.data |
+          selectattr('uuid', 'equalto', router_serial) |
+          map(attribute='system-ip') |
+          first }}
+      tags: skip_for_testing
+
+    - name: Display device found
+      ansible.builtin.debug:
+        msg:
+          - "======================================="
+          - "DEVICE FOUND IN VMANAGE"
+          - "======================================="
+          - "Serial:    {{ router_serial }}"
+          - "UUID:      {{ device_uuid }}"
+          - "System IP: {{ device_system_ip }}"
+          - "Status:    reachable"
+          - "======================================="
+
+    # ------------------------------------------------
+    # PHASE 3D - CALCULATE SUBNET VALUES
+    # ------------------------------------------------
+    - name: Generate subnet calculator script
       ansible.builtin.template:
-        src: ../templates/push_bootstrap.py.j2
-        dest: /tmp/{{ site_name }}_push_bootstrap.py
+        src: ../templates/calc_subnets.py.j2
+        dest: /tmp/calc_subnets.py
         mode: '0700'
       delegate_to: localhost
-      no_log: true
 
-    - name: Execute bootstrap push via WTI
+    - name: Run subnet calculator
       ansible.builtin.command:
-        cmd: python3 /tmp/{{ site_name }}_push_bootstrap.py
+        cmd: python3 /tmp/calc_subnets.py
       delegate_to: localhost
-      register: wti_result
-      no_log: true
+      register: subnet_calc_output
 
-    - name: Display WTI push result
-      ansible.builtin.debug:
-        var: wti_result.stdout_lines
+    - name: Set subnet facts from calculator
+      ansible.builtin.set_fact:
+        subnet_facts: "{{ subnet_calc_output.stdout | from_json }}"
 
-    - name: Clean up sensitive script file
+    - name: Clean up calculator script
       ansible.builtin.file:
-        path: /tmp/{{ site_name }}_push_bootstrap.py
+        path: /tmp/calc_subnets.py
         state: absent
       delegate_to: localhost
 
-    - name: Pause to allow router to boot and connect to vManage
+    - name: Display calculated values
+      ansible.builtin.debug:
+        msg:
+          - "User gateway:        {{ subnet_facts.user_gateway }}"
+          - "Wireless gateway:    {{ subnet_facts.wireless_gateway }}"
+          - "Video gateway:       {{ subnet_facts.video_gateway }}"
+          - "Guest gateway:       {{ subnet_facts.guest_gateway }}"
+          - "Phys Sec gateway:    {{ subnet_facts.phys_sec_gateway }}"
+          - "Printers gateway:    {{ subnet_facts.printers_gateway }}"
+          - "Phones gateway:      {{ subnet_facts.phones_gateway }}"
+          - "AP Mgmt gateway:     {{ subnet_facts.ap_mgmt_gateway }}"
+          - "Device Mgmt gateway: {{ subnet_facts.device_mgmt_gateway }}"
+          - "Printer 1 IP:        {{ subnet_facts.printer1_ip }}"
+          - "Printer 2 IP:        {{ subnet_facts.printer2_ip }}"
+          - "System IP bare:      {{ subnet_facts.system_ip_bare }}"
+          - "Loopback IP bare:    {{ subnet_facts.loopback_ip_bare }}"
+
+    # ------------------------------------------------
+    # PHASE 3D - GET TEMPLATE ID
+    # ------------------------------------------------
+    - name: Get device templates from vManage
+      ansible.builtin.uri:
+        url: "https://{{ vmanage_host }}/dataservice/template/device"
+        method: GET
+        validate_certs: no
+        headers: "{{ vmanage_headers }}"
+        status_code: 200
+      register: templates
+
+    - name: Extract template ID
+      ansible.builtin.set_fact:
+        template_id: >-
+          {{ templates.json.data |
+          selectattr('templateName', 'equalto', vmanage_template_name) |
+          map(attribute='templateId') |
+          first }}
+
+    - name: Display template ID
+      ansible.builtin.debug:
+        msg: "Template ID: {{ template_id }}"
+
+
+
+    # ------------------------------------------------
+    # PHASE 3D - CALCULATE DHCP VALUES FROM SUBNETS
+    # ------------------------------------------------
+    - name: Calculate gateway and DHCP values from subnets
+      ansible.builtin.set_fact:
+        # User subnet - Vlan1100
+        user_gateway: "{{ user_subnet | ansible.netcommon.ipaddr('1') | ansible.netcommon.ipaddr('address') }}"
+        user_pool: "{{ user_subnet }}"
+
+        # Wireless subnet - Vlan1400
+        wireless_gateway: "{{ wireless_subnet | ansible.netcommon.ipaddr('1') | ansible.netcommon.ipaddr('address') }}"
+        wireless_pool: "{{ wireless_subnet }}"
+
+        # Video subnet - Vlan1600
+        video_gateway: "{{ video_subnet | ansible.netcommon.ipaddr('1') | ansible.netcommon.ipaddr('address') }}"
+        video_pool: "{{ video_subnet }}"
+
+        # Guest subnet - Vlan2000
+        guest_gateway: "{{ guest_subnet | ansible.netcommon.ipaddr('1') | ansible.netcommon.ipaddr('address') }}"
+        guest_pool: "{{ guest_subnet }}"
+
+        # Physical security subnet - Vlan700
+        phys_sec_gateway: "{{ phys_sec_subnet | ansible.netcommon.ipaddr('1') | ansible.netcommon.ipaddr('address') }}"
+        phys_sec_pool: "{{ phys_sec_subnet }}"
+
+        # Printers subnet - Vlan200
+        printers_gateway: "{{ printers_subnet | ansible.netcommon.ipaddr('1') | ansible.netcommon.ipaddr('address') }}"
+        printers_pool: "{{ printers_subnet }}"
+        printer1_ip: "{{ printers_subnet | ansible.netcommon.ipaddr('2') | ansible.netcommon.ipaddr('address') }}"
+        printer2_ip: "{{ printers_subnet | ansible.netcommon.ipaddr('3') | ansible.netcommon.ipaddr('address') }}"
+
+        # Phones subnet - Vlan600
+        phones_gateway: "{{ phones_subnet | ansible.netcommon.ipaddr('1') | ansible.netcommon.ipaddr('address') }}"
+        phones_pool: "{{ phones_subnet }}"
+
+        # AP management subnet - Vlan490
+        ap_mgmt_gateway: "{{ ap_mgmt_subnet | ansible.netcommon.ipaddr('1') | ansible.netcommon.ipaddr('address') }}"
+        ap_mgmt_pool: "{{ ap_mgmt_subnet }}"
+
+        # Device management subnet - Vlan300
+        device_mgmt_gateway: "{{ device_mgmt_subnet | ansible.netcommon.ipaddr('1') | ansible.netcommon.ipaddr('address') }}"
+
+    - name: Display template attach payload for review
+      ansible.builtin.debug:
+        msg:
+          - "Template ID:  {{ template_id }}"
+          - "Device UUID:  {{ device_uuid }}"
+          - "Hostname:     {{ site_name }}"
+          - "System IP:    {{ subnet_facts.system_ip_bare }}"
+          - "Site ID:      {{ site_id }}"
+          - "Loopback:     {{ loopback_ip }}"
+          - "User VLAN:    {{ subnet_facts.user_gateway_prefix }}"
+          - "Wireless:     {{ subnet_facts.wireless_gateway_prefix }}"
+          - "Video:        {{ subnet_facts.video_gateway_prefix }}"
+          - "Guest:        {{ subnet_facts.guest_gateway_prefix }}"
+          - "Phones:       {{ subnet_facts.phones_gateway_prefix }}"
+          - "Printers:     {{ subnet_facts.printers_gateway_prefix }}"
+          - "AP Mgmt:      {{ subnet_facts.ap_mgmt_gateway_prefix }}"
+          - "Phys Sec:     {{ subnet_facts.phys_sec_gateway_prefix }}"
+          - "Device Mgmt:  {{ subnet_facts.device_mgmt_gateway_prefix }}"
+          - "Printer 1 IP: {{ subnet_facts.printer1_ip }}"
+          - "Printer 2 IP: {{ subnet_facts.printer2_ip }}"
+
+    - name: Confirm before pushing to vManage
       ansible.builtin.pause:
-        prompt: "Bootstrap pushed. Waiting for router to connect to vManage. Press Enter when router shows as reachable in vManage or wait for automatic detection"
+        prompt: "Review payload above. Press Enter to attach template or Ctrl+C then A to abort"
+
+
+    # ------------------------------------------------
+    # PHASE 3D - ATTACH TEMPLATE WITH VARIABLES
+    # ------------------------------------------------
+    - name: Attach template to device with all variables
+      ansible.builtin.uri:
+        url: "https://{{ vmanage_host }}/dataservice/template/device/config/attachfeature"
+        method: POST
+        validate_certs: no
+        headers: "{{ vmanage_headers }}"
+        body_format: json
+        body:
+          deviceTemplateList:
+            - templateId: "{{ template_id }}"
+              isEdited: false
+              isMasterEdited: false
+              device:
+                - csv-status: "complete"
+                  csv-deviceId: "{{ device_uuid }}"
+                  csv-deviceIP: "{{ subnet_facts.system_ip_bare }}"
+                  csv-host-name: "{{ site_name }}"
+                  csv-templateId: "{{ template_id }}"
+
+                  # System
+                  "//system/host-name": "{{ site_name }}"
+                  "//system/system-ip": "{{ subnet_facts.system_ip_bare }}"
+                  "//system/site-id": "{{ site_id }}"
+
+                  # Interface descriptions - hardcoded
+                  WTI: "WTI"
+                  SecurityDesc1: "Sec 1"
+                  SecurityDesc2: "Sec 2"
+                  SecurityDesc3: "Sec 3"
+                  SecurityDesc4: "Sec 4"
+                  Printer1: "Printer 1"
+                  Printer2: "Printer 2"
+                  UPS1: "UPS"
+                  VoiceGateway: "Voice Gateway"
+                  VideoUnit1: "Video Unit 1"
+                  VideoUnit2: "Video Unit 2"
+                  VideoUnit3: "Video Unit 3"
+                  VideoUnit4: "Video Unit 4"
+                  WAP1: "Access Point 1"
+                  WAP2: "Access Point 2"
+                  WAP3: "Access Point 3"
+                  WAP4: "Access Point 4"
+
+                  # SNMP
+                  "//snmp/contact": "{{ snmp_contact }}"
+                  "//snmp/location": "{{ snmp_location }}"
+
+                  # VPN200 aggregates
+                  "/200/vpn-instance/omp/advertise/aggregate/prefix-list/vpn200_omp_aggregate_aggregate_prefix/prefix-entry": "{{ user_subnet }}"
+
+                  # VPN200 VLANs
+                  "/200/Vlan1100/interface/ip/address": "{{ subnet_facts.user_gateway_prefix }}"
+                  "/200/Vlan1100//dhcp-server/address-pool": "{{ subnet_facts.user_pool }}"
+                  "/200/Vlan1100//dhcp-server/exclude": "{{ subnet_facts.user_gateway }}"
+                  "/200/Vlan1100//dhcp-server/options/default-gateway": "{{ subnet_facts.user_gateway }}"
+
+                  "/200/Vlan1400/interface/ip/address": "{{ subnet_facts.wireless_gateway_prefix }}"
+                  "/200/Vlan1400//dhcp-server/address-pool": "{{ subnet_facts.wireless_pool }}"
+                  "/200/Vlan1400//dhcp-server/exclude": "{{ subnet_facts.wireless_gateway }}"
+                  "/200/Vlan1400//dhcp-server/options/default-gateway": "{{ subnet_facts.wireless_gateway }}"
+
+                  "/200/Vlan1600/interface/ip/address": "{{ subnet_facts.video_gateway_prefix }}"
+                  "/200/Vlan1600//dhcp-server/address-pool": "{{ subnet_facts.video_pool }}"
+                  "/200/Vlan1600//dhcp-server/exclude": "{{ subnet_facts.video_gateway }}"
+                  "/200/Vlan1600//dhcp-server/options/default-gateway": "{{ subnet_facts.video_gateway }}"
+
+                  "/200/Vlan2000/interface/ip/address": "{{ subnet_facts.guest_gateway_prefix }}"
+                  "/200/Vlan2000//dhcp-server/address-pool": "{{ subnet_facts.guest_pool }}"
+                  "/200/Vlan2000//dhcp-server/exclude": "{{ subnet_facts.guest_gateway }}"
+                  "/200/Vlan2000//dhcp-server/options/default-gateway": "{{ subnet_facts.guest_gateway }}"
+
+                  "/200/Vlan700/interface/ip/address": "{{ subnet_facts.phys_sec_gateway_prefix }}"
+                  "/200/Vlan700//dhcp-server/address-pool": "{{ subnet_facts.phys_sec_pool }}"
+                  "/200/Vlan700//dhcp-server/exclude": "{{ subnet_facts.phys_sec_gateway }}"
+                  "/200/Vlan700//dhcp-server/options/default-gateway": "{{ subnet_facts.phys_sec_gateway }}"
+
+                  # VPN1 aggregate
+                  "/1/vpn-instance/omp/advertise/aggregate/prefix-list/vpn_omp_aggregate_aggregate_prefix/prefix-entry": "{{ loopback_ip }}"
+
+                  # VPN1 VLANs
+                  "/1/Vlan200/interface/ip/address": "{{ subnet_facts.printers_gateway_prefix }}"
+                  "/1/Vlan200//dhcp-server/address-pool": "{{ subnet_facts.printers_pool }}"
+                  "/1/Vlan200//dhcp-server/exclude": "{{ subnet_facts.printers_gateway }}"
+                  "/1/Vlan200//dhcp-server/options/default-gateway": "{{ subnet_facts.printers_gateway }}"
+                  "/1/Vlan200//dhcp-server/static-lease/printer1_mac_address/mac-address": "{{ printer_mac_1 }}"
+                  "/1/Vlan200//dhcp-server/static-lease/printer2_mac_address/mac-address": "{{ printer_mac_2 }}"
+                  "/1/Vlan200//dhcp-server/static-lease/printer1_mac_address/ip": "{{ printer1_ip }}"
+                  "/1/Vlan200//dhcp-server/static-lease/printer2_mac_address/ip": "{{ printer2_ip }}"
+
+                  "/1/Vlan300/interface/ip/address": "{{ subnet_facts.device_mgmt_gateway_prefix }}"
+
+                  "/1/Vlan600/interface/ip/address": "{{ subnet_facts.phones_gateway_prefix }}"
+                  "/1/Vlan600//dhcp-server/address-pool": "{{ subnet_facts.phones_pool }}"
+                  "/1/Vlan600//dhcp-server/exclude": "{{ subnet_facts.phones_gateway }}"
+                  "/1/Vlan600//dhcp-server/options/default-gateway": "{{ subnet_facts.phones_gateway }}"
+
+                  "/1/Vlan490/interface/ip/address": "{{ subnet_facts.ap_mgmt_gateway_prefix }}"
+                  "/1/Vlan490//dhcp-server/address-pool": "{{ subnet_facts.ap_mgmt_pool }}"
+                  "/1/Vlan490//dhcp-server/exclude": "{{ subnet_facts.ap_mgmt_gateway }}"
+                  "/1/Vlan490//dhcp-server/options/default-gateway": "{{ subnet_facts.ap_mgmt_gateway }}"
+
+                  # Loopback
+                  "/1/loopback100/interface/description": "{{ site_name }}"
+                  "/1/loopback100/interface/ip/address": "{{ loopback_ip }}"
+
+                  # WAN and routing
+                  "/0/vpn-instance/ip/route/0.0.0.0/0/next-hop/vpn0_GOLR1/address": "{{ wan_internet_next_hop }}"
+                  "/0/vpn-instance/ip/route/0.0.0.0/0/next-hop/vpn0_GOLR2/address": "{{ wan_mpls_next_hop }}"
+                  "/0/vpn-instance/ip/route/0.0.0.0/0/next-hop/vpn0_GOLR3/address": "{{ lab_golr }}"
+                  "/0/GigabitEthernet0/0/3/interface/ip/address": "{{ lab_ipaddress }}"
+                  "/0/Gi-0-0-0-ATT-INT-NAME/interface/if-name": "{{ wan_mpls_subinterface }}"
+                  "/0/Gi-0-0-0-ATT-INT-NAME/interface/description": "{{ wan_mpls_description }}"
+                  "/0/Gi-0-0-0-ATT-INT-NAME/interface/ip/address": "{{ wan_mpls_ip }}"
+                  "/0/GigabitEthernet0/0/2/interface/ip/address": "{{ wan_internet_ip }}"
+
+                  # AAA
+                  "//aaa/tacacs/tacacs-1/source-interface": "{{ tacacs_source_interface }}"
+
+        status_code: 200
+      register: attach_result
+
+    - name: Display attach result
+      ansible.builtin.debug:
+        var: attach_result.json

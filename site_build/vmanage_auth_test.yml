@@ -48,3 +48,32 @@
     - name: Display device count
       ansible.builtin.debug:
         msg: "Successfully retrieved {{ device_list.json.data | length }} devices from vManage"
+
+    - name: Show first device serial fields
+      ansible.builtin.debug:
+        msg:
+          - "uuid:         {{ device_list.json.data[0].uuid }}"
+          - "board-serial: {{ device_list.json.data[0]['board-serial'] }}"
+
+    - name: Get device templates
+      ansible.builtin.uri:
+        url: "https://{{ vmanage_host }}/dataservice/template/device"
+        method: GET
+        validate_certs: no
+        headers: "{{ vmanage_headers }}"
+        status_code: 200
+      register: templates
+
+    - name: Find MKO initial template
+      ansible.builtin.set_fact:
+        mko_template: >-
+          {{ templates.json.data |
+          selectattr('templateName', 'equalto', vmanage_template_name) |
+          list | first }}
+
+    - name: Display template info
+      ansible.builtin.debug:
+        msg:
+          - "Template Name: {{ mko_template.templateName }}"
+          - "Template ID:   {{ mko_template.templateId }}"
+          - "Device Type:   {{ mko_template.deviceType }}"

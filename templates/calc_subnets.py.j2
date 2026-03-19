@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+import ipaddress
+import json
+
+def get_gateway(subnet):
+    net = ipaddress.ip_network(subnet, strict=False)
+    hosts = list(net.hosts())
+    return str(hosts[0])
+
+def get_last_host(subnet):
+    net = ipaddress.ip_network(subnet, strict=False)
+    hosts = list(net.hosts())
+    return str(hosts[-1])
+
+def get_network(subnet):
+    net = ipaddress.ip_network(subnet, strict=False)
+    return str(net.network_address)
+
+def get_prefix(subnet):
+    net = ipaddress.ip_network(subnet, strict=False)
+    return str(net.prefixlen)
+
+def get_nth_host(subnet, n):
+    net = ipaddress.ip_network(subnet, strict=False)
+    hosts = list(net.hosts())
+    return str(hosts[n-1])
+
+# Input subnets from Ansible
+subnets = {
+    'user':        '{{ user_subnet }}',
+    'wireless':    '{{ wireless_subnet }}',
+    'video':       '{{ video_subnet }}',
+    'guest':       '{{ guest_subnet }}',
+    'phys_sec':    '{{ phys_sec_subnet }}',
+    'printers':    '{{ printers_subnet }}',
+    'phones':      '{{ phones_subnet }}',
+    'ap_mgmt':     '{{ ap_mgmt_subnet }}',
+    'device_mgmt': '{{ device_mgmt_subnet }}',
+}
+
+results = {}
+
+for name, subnet in subnets.items():
+    prefix = get_prefix(subnet)
+    results[f'{name}_gateway']    = get_gateway(subnet)
+    results[f'{name}_pool']       = subnet
+    results[f'{name}_gateway_prefix'] = f"{get_gateway(subnet)}/{prefix}"
+
+# Printer static IPs
+results['printer1_ip'] = get_nth_host(subnets['printers'], 2)
+results['printer2_ip'] = get_nth_host(subnets['printers'], 3)
+
+# Strip /32 from system and loopback IPs
+results['system_ip_bare']   = '{{ system_ip }}'.split('/')[0]
+results['loopback_ip_bare'] = '{{ loopback_ip }}'.split('/')[0]
+
+print(json.dumps(results))

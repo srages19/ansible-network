@@ -10,30 +10,49 @@ bootstrap_lines = [
 {% endfor %}
 ]
 
-# Connect to WTI
 print("Connecting to WTI...")
 child = pexpect.spawn(
     'ssh -o StrictHostKeyChecking=no {{ wti_user }}@{{ wti_host }}',
-    timeout=30
+    timeout=30,
+    encoding='utf-8'
 )
 
 # Handle SSH password
-child.expect('Password:')
-child.sendline('{{ wti_password }}')
+child.expect('[Pp]assword:')
+child.send('{{ wti_password }}\r\n')
 print("Authenticated to WTI")
 
-# Connect to console port
+# Wait for full WTI menu to finish printing
+child.expect('command menu')
+print("WTI menu fully loaded")
+
+# Wait for actual prompt
 child.expect('>')
-child.sendline('/C {{ wti_port }}')
+print("Got WTI prompt - ready for commands")
+time.sleep(1)
+
+# Connect to console port
+child.send('/C {{ wti_port }}\r\n')
 print("Connecting to console port {{ wti_port }}...")
 
-# Wait for router prompt - could take a moment
+# Wait for WTI connection confirmation
+child.expect('To disconnect', timeout=15)
+print("WTI confirmed connection to port {{ wti_port }}")
+
+# Wait for banner to fully print then trigger login
+time.sleep(5)
+child.send('\r\n')
+print("Sent enter to wake device")
+time.sleep(2)
+
+# C8300 factory default - no console credentials needed
+# Wait for Router# prompt directly
 child.expect('Router#', timeout=60)
 print("Connected to router console")
 
-# Enter config mode
-child.sendline('config-transaction')
-child.expect('#')
+# Enter config-transaction mode
+child.send('config-transaction\r\n')
+child.expect('#', timeout=15)
 time.sleep(2)
 print("Entered config-transaction mode")
 
@@ -43,36 +62,38 @@ for i, line in enumerate(bootstrap_lines):
         continue
     print(f"Sending line {i+1}: {line}")
     try:
-        child.sendline(line)
+        child.send(f'{line}\r\n')
         child.expect('#', timeout=15)
         time.sleep(0.5)
     except pexpect.TIMEOUT:
-       print(f"TIMEOUT waiting for prompt after line {i+1}: {line}")
-       print("Current buffer contents:")
-       print(child.before.decode('utf-8', errors='replace'))
-       child.sendcontrol('x')
-       child.close()
-       sys.exit(1)
+        print(f"TIMEOUT waiting for prompt after line {i+1}: {line}")
+        print("Current buffer contents:")
+        print(child.before)
+        child.sendcontrol('x')
+        child.close()
+        sys.exit(1)
     except pexpect.EOF:
-       print(f"Connection closed unexpectedly after line {i+1}: {line}")
-       sys.exit(1)
+        print(f"Connection closed unexpectedly after line {i+1}: {line}")
+        sys.exit(1)
+
 # Commit
 print("Committing configuration...")
-child.sendline('commit')
+child.send('commit\r\n')
 child.expect('Commit complete', timeout=30)
 print("Commit complete")
 
 # End back to exec mode
-child.sendline('end')
+child.send('end\r\n')
 child.expect('Router#')
 print("Back to exec mode")
 
 # Disconnect from console
 child.sendcontrol('x')
 print("Disconnected from console port")
+time.sleep(1)
 
 # Close SSH
-child.sendline('exit')
+child.send('exit\r\n')
 child.close()
 
 print("Bootstrap push completed successfully")
